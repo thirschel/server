@@ -159,6 +159,64 @@ Pass: 2   Fail: 0   Warn: 0   Skip: 0
 	}
 }
 
+func TestRunCasePreservesTreeShapeAndKeepsMetadataLocal(t *testing.T) {
+	testFn := TestFn(tdRunCaseProbe)
+	testCase := &ConformanceCase{
+		ID:           "core.run-case-probe",
+		FunctionName: testFn.DisplayName(),
+		Name:         "Run case probe",
+		Description:  "Verify RunCase compatibility.",
+		ProfileID:    coreConformanceProfileID,
+		Mode:         CaseModeReadOnly,
+		Test:         testFn,
+	}
+
+	TDClear()
+	baselineRoot := NewTD(nil, "root")
+	baselineCase := baselineRoot.Run(testFn)
+	baselineOutput := bytes.Buffer{}
+	baselineRoot.Print(&baselineOutput, "", false, 99)
+
+	TDClear()
+	defer TDClear()
+	caseRoot := NewTD(nil, "root")
+	caseTD := caseRoot.RunCase(testCase)
+	caseOutput := bytes.Buffer{}
+	caseRoot.Print(&caseOutput, "", false, 99)
+
+	if caseOutput.String() != baselineOutput.String() {
+		t.Fatalf("RunCase changed TD output: %s",
+			Diff(baselineOutput.String(), caseOutput.String()))
+	}
+	if caseTD.NumPass != baselineCase.NumPass ||
+		caseTD.NumFail != baselineCase.NumFail ||
+		caseTD.NumWarn != baselineCase.NumWarn ||
+		caseTD.NumSkip != baselineCase.NumSkip {
+
+		t.Fatalf("RunCase changed TD counts: got %d/%d/%d/%d, want %d/%d/%d/%d",
+			caseTD.NumPass, caseTD.NumFail, caseTD.NumWarn, caseTD.NumSkip,
+			baselineCase.NumPass, baselineCase.NumFail,
+			baselineCase.NumWarn, baselineCase.NumSkip)
+	}
+	if caseTD.Case != testCase {
+		t.Fatal("RunCase did not attach metadata to the logical case node")
+	}
+	if caseRoot.Case != nil {
+		t.Fatal("Case metadata leaked to the root")
+	}
+	if len(caseTD.Logs) == 0 || caseTD.Logs[0].Subtest == nil {
+		t.Fatalf("RunCase probe did not create its child: %#v", caseTD.Logs)
+	}
+	if caseTD.Logs[0].Subtest.Case != nil {
+		t.Fatal("Case metadata leaked to a descendant")
+	}
+
+	sibling := NewTD(caseRoot, "sibling")
+	if sibling.Case != nil {
+		t.Fatal("Case metadata leaked to a sibling")
+	}
+}
+
 func TestConformRunsAreByteIdenticalInProcess(t *testing.T) {
 	server, _ := newTestConformServer(t)
 	options := testConformOptions()
@@ -303,7 +361,10 @@ func testConformOptions() conformOptions {
 
 func testConformOutput(servers []string, options conformOptions) (string, int) {
 	out := bytes.Buffer{}
-	rc := runConform(servers, &out, options)
+	rc, err := runConform(servers, &out, options)
+	if err != nil {
+		panic(err)
+	}
 	return out.String(), rc
 }
 
@@ -413,6 +474,11 @@ func captureTestStdout(t *testing.T, fn func()) string {
 		t.Fatal(err)
 	}
 	return string(buf)
+}
+
+func tdRunCaseProbe(td *TD) {
+	child := NewTD(td, "child")
+	child.Pass("entry")
 }
 
 func Twiddle(in string) string {

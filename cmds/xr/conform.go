@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/xregistry/server/cmds/xr/xrlib"
@@ -15,46 +16,160 @@ var depth = 2
 var ShowLogs = false // EnvBool("XR_SHOWLOGS", false)
 
 type conformOptions struct {
-	depth    int
-	showLogs bool
-	debug    bool
-	failFast bool
-	runFunc  string
-	wrapAt   int
+	depth          int
+	showLogs       bool
+	debug          bool
+	failFast       bool
+	runFunc        string
+	wrapAt         int
+	testIDs        []string
+	allowMutations bool
 }
 
 func conformFunc(cmd *cobra.Command, args []string) {
-	servers := []string{}
-
-	if len(args) > 0 {
-		servers = args
-	} else {
-		servers = []string{GetServer()}
-	}
-
 	failFast, _ := cmd.Flags().GetBool("failfast")
 	noWrap, _ := cmd.Flags().GetBool("nowrap")
 	runFunc, _ := cmd.Flags().GetString("run")
+	testIDs, _ := cmd.Flags().GetStringArray("test")
+	allowMutations, _ := cmd.Flags().GetBool("allow-mutations")
+	listTests, _ := cmd.Flags().GetBool("list-tests")
 
 	options := conformOptions{
-		depth:    depth,
-		showLogs: ShowLogs,
-		debug:    tdDebug,
-		failFast: failFast,
-		runFunc:  runFunc,
-		wrapAt:   WrapAt,
+		depth:          depth,
+		showLogs:       ShowLogs,
+		debug:          tdDebug,
+		failFast:       failFast,
+		runFunc:        runFunc,
+		wrapAt:         WrapAt,
+		testIDs:        testIDs,
+		allowMutations: allowMutations,
 	}
 	if noWrap {
 		options.wrapAt = 0
 	}
 
-	rc := runConform(servers, os.Stdout, options)
+	if err := validateConformInvocation(cmd, args, listTests); err != nil {
+		Error(err)
+	}
+	if listTests {
+		renderConformanceCatalog(
+			os.Stdout,
+			ConformanceProfiles,
+			ConformanceCatalog,
+		)
+		return
+	}
+
+	servers := args
+	if len(servers) == 0 {
+		servers = []string{GetServer()}
+	}
+
+	rc, err := runConform(servers, os.Stdout, options)
+	Error(err)
 	if rc != 0 {
 		os.Exit(rc)
 	}
 }
 
-func runConform(servers []string, out io.Writer, options conformOptions) int {
+func validateConformInvocation(
+	cmd *cobra.Command,
+	args []string,
+	listTests bool,
+) error {
+	flagChanged := func(name string) bool {
+		if flag := cmd.Flags().Lookup(name); flag != nil {
+			return flag.Changed
+		}
+		if flag := cmd.InheritedFlags().Lookup(name); flag != nil {
+			return flag.Changed
+		}
+		return false
+	}
+
+	if flagChanged("run") {
+		conflicts := []string{}
+		for _, name := range []string{
+			"list-tests",
+			"test",
+			"allow-mutations",
+		} {
+			if flagChanged(name) {
+				conflicts = append(conflicts, "--"+name)
+			}
+		}
+		if len(conflicts) != 0 {
+			return fmt.Errorf("--run cannot be combined with %s",
+				strings.Join(conflicts, ", "))
+		}
+	}
+
+	if listTests {
+		if len(args) != 0 {
+			return fmt.Errorf("--list-tests does not accept target URLs")
+		}
+		for _, name := range []string{
+			"server",
+			"logs",
+			"depth",
+			"failfast",
+			"nowrap",
+			"run",
+			"tdDebug",
+			"test",
+			"allow-mutations",
+		} {
+			if flagChanged(name) {
+				return fmt.Errorf(
+					"--list-tests cannot be combined with --%s",
+					name)
+			}
+		}
+	}
+
+	return nil
+}
+
+func runConform(
+	servers []string,
+	out io.Writer,
+	options conformOptions,
+) (int, error) {
+	return runConformWithCatalog(
+		servers,
+		out,
+		options,
+		ConformanceProfiles,
+		ConformanceCatalog,
+	)
+}
+
+func runConformWithCatalog(
+	servers []string,
+	out io.Writer,
+	options conformOptions,
+	profiles []ConformanceProfile,
+	catalog []ConformanceCase,
+) (int, error) {
+	var selection *ConformanceSelection
+	if options.runFunc == "" {
+		if err := validateConformanceCatalog(profiles, catalog); err != nil {
+			return 0, err
+		}
+		var err error
+		selection, err = resolveConformanceSelection(
+			catalog,
+			options.testIDs,
+			options.allowMutations,
+		)
+		if err != nil {
+			return 0, err
+		}
+	} else if len(options.testIDs) != 0 || options.allowMutations {
+		return 0, fmt.Errorf(
+			"--run cannot be combined with --test or --allow-mutations")
+	}
+
 	oldFailFast := FailFast
 	oldWrapAt := WrapAt
 	oldTDDebug := tdDebug
@@ -75,13 +190,18 @@ func runConform(servers []string, out io.Writer, options conformOptions) int {
 		if i != 0 {
 			fmt.Fprintln(out)
 		}
-		rc = rc + conformServer(server, out, options)
+		rc = rc + conformServer(server, out, options, selection)
 	}
 
-	return rc
+	return rc, nil
 }
 
-func conformServer(server string, out io.Writer, options conformOptions) int {
+func conformServer(
+	server string,
+	out io.Writer,
+	options conformOptions,
+	selection *ConformanceSelection,
+) int {
 	td := NewTD(nil, server)
 
 	defer func() {
@@ -104,7 +224,11 @@ func conformServer(server string, out io.Writer, options conformOptions) int {
 	*/
 
 	if options.runFunc == "" {
-		td.Include(TestRegistry)
+		runSelectedConformanceCases(
+			td,
+			selection,
+			options.allowMutations,
+		)
 	} else {
 		funcs := map[string]TestFn{
 			"TestTDAllPass": TestTDAllPass,
@@ -123,6 +247,66 @@ func conformServer(server string, out io.Writer, options conformOptions) int {
 	return td.ExitCode()
 }
 
+type conformanceExecutionState struct {
+	testCase *ConformanceCase
+	td       *TD
+}
+
+func runSelectedConformanceCases(
+	td *TD,
+	selection *ConformanceSelection,
+	allowMutations bool,
+) {
+	PanicIf(selection == nil, "conformance selection is nil")
+
+	reg := td.GetRegistry()
+	state := &conformanceExecutionState{}
+	reg.SetRequestGuard(func(method string, _ string) error {
+		err := validateConformanceRequest(
+			state.testCase,
+			allowMutations,
+			method,
+		)
+		if err != nil && state.td != nil {
+			state.td.FailNow(err.Error())
+		}
+		return err
+	})
+	defer reg.SetRequestGuard(nil)
+
+	for _, testCase := range selection.Cases {
+		state.testCase = testCase
+		td.runCase(testCase, func(caseTD *TD) {
+			state.td = caseTD
+			defer func() {
+				state.td = nil
+			}()
+
+			for _, dependencyID := range testCase.Dependencies {
+				dependency := selection.byID[dependencyID]
+				if dependency == nil {
+					caseTD.FailNow(
+						"Conformance dependency %q is not registered",
+						dependencyID)
+				}
+
+				dependencyTD, ok := TestsRun[dependency.Test.Name()]
+				if !ok {
+					caseTD.FailNow(
+						"Conformance dependency %q did not run",
+						dependencyID)
+				}
+				if dependencyTD.Status == FAIL {
+					caseTD.DependsOn(dependency.Test)
+				}
+			}
+
+			testCase.Test(caseTD)
+		})
+		state.testCase = nil
+	}
+}
+
 func addConformCmd(parent *cobra.Command) {
 	conformCmd := &cobra.Command{
 		Use:     "conform [URL...]",
@@ -137,6 +321,12 @@ func addConformCmd(parent *cobra.Command) {
 	conformCmd.Flags().Bool("failfast", false, "Stop on first failure")
 	conformCmd.Flags().StringP("run", "r", "", "Run function")
 	conformCmd.Flags().BoolP("nowrap", "", false, "Don't wrap output")
+	conformCmd.Flags().Bool("list-tests", false,
+		"List conformance tests without contacting a server")
+	conformCmd.Flags().StringArray("test", nil,
+		"Run a stable conformance test ID (repeatable)")
+	conformCmd.Flags().Bool("allow-mutations", false,
+		"Allow selected mutation tests to send unsafe HTTP methods")
 
 	conformCmd.Flags().MarkHidden("run")
 	conformCmd.Flags().MarkHidden("tdDebug")

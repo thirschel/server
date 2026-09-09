@@ -1,14 +1,16 @@
 package main
 
-import ()
+import . "github.com/xregistry/server/common"
 
 func TestSniff(td *TD) {
 	reg := td.GetRegistry()
 	td.Log("Server URL: %s", reg.GetServerURL())
 
 	res, _ := reg.HttpDo(VerboseCount > 2, "GET", "", nil)
+	reg.SetStuff(conformanceSniffResponseKey, res)
 	td.HTTPStatusMustEqual(res, 200, "GET /")
 	td.HTTPBodyMustJSON(res, "GET /")
+	td.ObjReqMustEq(res.JSON, "specversion", SPECVERSION)
 }
 
 func TestTD(td *TD) {

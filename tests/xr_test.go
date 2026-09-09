@@ -2332,6 +2332,23 @@ func TestXRConformBasic(t *testing.T) {
 Pass: 101   Fail: 0   Warn: 0   Skip: 0
 `, ``, true)
 
+	XCLI(t, "conform --list-tests", "", "*", ``, true)
+
+	const sniffOnly = `PASS: http://localhost:8181
+└─ PASS: TestSniff
+Pass: 6   Fail: 0   Warn: 0   Skip: 0
+`
+	XCLI(t, "conform --test core.registry-access", "", sniffOnly, ``, true)
+	XCLI(t,
+		"conform --test core.registry-access --test core.registry-access",
+		"", sniffOnly, ``, true)
+
+	XCLI(t, "conform --test Core.registry-access", "", ``, "*", false)
+	XCLI(t, "conform --list-tests http://localhost:8181", "", ``, "*", false)
+	XCLI(t,
+		"conform --run TestTDAllPass --test core.registry-access",
+		"", ``, "*", false)
+
 	XCLI(t, "conform --run TestTDAllPass -d0", "", `PASS: http://localhost:8181
 └─ PASS: TestTDAllPass
    ├─ PASS: TestTDInit

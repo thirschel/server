@@ -9,12 +9,9 @@ import (
 )
 
 func TestRegistry(td *TD) {
-	td.DependsOn(TestSniff)
-	td.Run(TestModel)
-	td.Run(TestCapabilities)
-	td.Run(TestRegistryRoot)
-	td.Run(TestGroups)
-	td.Run(TestResources)
+	for i := range ConformanceCatalog {
+		td.RunCase(&ConformanceCatalog[i])
+	}
 }
 
 func TestModel(td *TD) {
@@ -112,9 +109,7 @@ func TestRegistryRoot(td *TD) {
 
 	td.HTTPStatusMustEqual(res, 200, "GET /")
 	td.HTTPBodyMustJSON(res, "GET /")
-
 	td.Log("Root: %s", string(res.Body))
-	td.ObjReqMustGt(res.JSON, "specversion", "1.0")
 	td.ObjReqMustNe(res.JSON, "registryid", "")
 	td.ObjReqMustNe(res.JSON, "self", "")
 	reg.SetStuff("self", MustString(res.JSON["self"]))
