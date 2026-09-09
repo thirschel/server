@@ -37,8 +37,11 @@ type CollectionDefined struct {
 }
 */
 
+type RequestGuard func(method string, requestURL string) error
+
 type EntityExtensions struct {
-	tx *Tx
+	tx           *Tx
+	requestGuard RequestGuard
 }
 
 type Tx struct {
@@ -72,6 +75,10 @@ func GetRegistry(url string) (*Registry, *XRError) {
 
 func (reg *Registry) GetServerURL() string {
 	return reg.GetStuffAsString("server")
+}
+
+func (reg *Registry) SetRequestGuard(guard RequestGuard) {
+	reg.requestGuard = guard
 }
 
 func (reg *Registry) Refresh() *XRError {
@@ -274,6 +281,14 @@ func (reg *Registry) HttpDo(debug bool, verb, path string, body []byte) (*HttpRe
 	u, xErr := reg.URLWithPath(path)
 	if xErr != nil {
 		return nil, xErr
+	}
+
+	if reg.requestGuard != nil {
+		if err := reg.requestGuard(verb, u.String()); err != nil {
+			xErr := NewXRError("client_error", u.String(),
+				"error_detail="+err.Error())
+			return &HttpResponse{Error: xErr}, xErr
+		}
 	}
 
 	return HttpDo(debug, verb, u.String(), HTTPHeaders, body)

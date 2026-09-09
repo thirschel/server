@@ -21,6 +21,7 @@ encounter problems.
 - [Quick Start](docs/quick_start.md) (requires Docker)
 - [Installation Options](docs/installation.md)
 - [`xr` Command](docs/xr_help.md)
+- [`xr conform` Conformance Testing](docs/xr_conform.md)
 - [`xrserver` Command](docs/xrserver_help.md)
 - [Developers/Contributing](docs/developers.md)
 - [Community (and additional) Information](docs/community.md)
@@ -28,4 +29,3 @@ encounter problems.
 ### Implementation Details/Choices
 
 See the [Design Doc](DESIGN.md)
-

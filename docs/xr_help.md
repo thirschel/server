@@ -18,16 +18,20 @@ xr [command]
 
 xr conform [URL...]
   # xRegistry Conformance Tester
-      --config string   Config file ($HOME/.xr)
-  -d, --depth int       Console depth (default 2)
-      --errjson         Print errors as json
-      --failfast        Stop on first failure
-  -?, --help            Help for xr
-  -l, --logs            Show logs even on success
-      --nowrap          Don't wrap output
-  -s, --server string   xRegistry server URL
-  -v, --verbose         Be chatty
-      --version         Print command version string
+      --allow-mutations    Allow selected mutation tests to send unsafe
+                           HTTP methods
+      --config string      Config file ($HOME/.xr)
+  -d, --depth int          Console depth (default 2)
+      --errjson            Print errors as json
+      --failfast           Stop on first failure
+  -?, --help               Help for xr
+      --list-tests         List conformance tests without contacting a server
+  -l, --logs               Show logs even on success
+      --nowrap             Don't wrap output
+  -s, --server string      xRegistry server URL
+      --test stringArray   Run a stable conformance test ID (repeatable)
+  -v, --verbose            Be chatty
+      --version            Print command version string
 
 xr create XID
   # Create a new entity in the registry

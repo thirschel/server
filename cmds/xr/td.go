@@ -57,6 +57,14 @@ func (fn TestFn) Name() string {
 	return name
 }
 
+func (fn TestFn) DisplayName() string {
+	before, name, _ := strings.Cut(fn.Name(), ".")
+	if name == "" {
+		return before
+	}
+	return name
+}
+
 type LogEntry struct {
 	Date    time.Time
 	Type    int // pass, fail, warning, skip, else log or TD
@@ -69,6 +77,7 @@ type TD struct {
 	TestName string
 	Parent   *TD `json:"-"`
 	Logs     []*LogEntry
+	Case     *ConformanceCase `json:"-"`
 
 	Status int // PASS, FAIL, ...
 	Props  map[string]any
@@ -409,11 +418,26 @@ func (td *TD) DependsOn(fn TestFn) {
 }
 
 func (td *TD) Run(fn TestFn) *TD {
-	before, name, _ := strings.Cut(fn.Name(), ".")
-	if name == "" {
-		name = before
-	}
-	newTD := NewTD(td, name)
+	return td.run(fn, nil, fn)
+}
+
+func (td *TD) RunCase(testCase *ConformanceCase) *TD {
+	PanicIf(testCase == nil, "conformance case is nil")
+	return td.runCase(testCase, testCase.Test)
+}
+
+func (td *TD) runCase(testCase *ConformanceCase, execute TestFn) *TD {
+	PanicIf(testCase == nil, "conformance case is nil")
+	return td.run(testCase.Test, testCase, execute)
+}
+
+func (td *TD) run(
+	fn TestFn,
+	testCase *ConformanceCase,
+	execute TestFn,
+) *TD {
+	newTD := NewTD(td, fn.DisplayName())
+	newTD.Case = testCase
 
 	// Save in the cache
 	TestsRun[fn.Name()] = newTD
@@ -429,17 +453,13 @@ func (td *TD) Run(fn TestFn) *TD {
 				}
 			}
 		}()
-		fn(newTD)
+		execute(newTD)
 	}()
 
 	return newTD
 }
 
 func (td *TD) Include(fn TestFn) *TD {
-	before, name, _ := strings.Cut(fn.Name(), ".")
-	if name == "" {
-		name = before
-	}
 	newTD := td // NewTD(td, name)
 
 	// Save in the cache
