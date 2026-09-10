@@ -24,6 +24,9 @@ type conformOptions struct {
 	wrapAt         int
 	testIDs        []string
 	allowMutations bool
+	output         conformanceOutputFormat
+	depthExplicit  bool
+	nowrapExplicit bool
 }
 
 func conformFunc(cmd *cobra.Command, args []string) {
@@ -33,6 +36,8 @@ func conformFunc(cmd *cobra.Command, args []string) {
 	testIDs, _ := cmd.Flags().GetStringArray("test")
 	allowMutations, _ := cmd.Flags().GetBool("allow-mutations")
 	listTests, _ := cmd.Flags().GetBool("list-tests")
+	outputValue, _ := cmd.Flags().GetString("output")
+	output, _ := parseConformanceOutput(outputValue)
 
 	options := conformOptions{
 		depth:          depth,
@@ -43,6 +48,9 @@ func conformFunc(cmd *cobra.Command, args []string) {
 		wrapAt:         WrapAt,
 		testIDs:        testIDs,
 		allowMutations: allowMutations,
+		output:         output,
+		depthExplicit:  cmd.Flags().Changed("depth"),
+		nowrapExplicit: cmd.Flags().Changed("nowrap"),
 	}
 	if noWrap {
 		options.wrapAt = 0
@@ -52,11 +60,19 @@ func conformFunc(cmd *cobra.Command, args []string) {
 		Error(err)
 	}
 	if listTests {
-		renderConformanceCatalog(
-			os.Stdout,
-			ConformanceProfiles,
-			ConformanceCatalog,
-		)
+		if output == conformanceOutputJSON {
+			Error(renderConformanceCatalogJSON(
+				os.Stdout,
+				ConformanceProfiles,
+				ConformanceCatalog,
+			))
+		} else {
+			renderConformanceCatalog(
+				os.Stdout,
+				ConformanceProfiles,
+				ConformanceCatalog,
+			)
+		}
 		return
 	}
 
@@ -87,7 +103,33 @@ func validateConformInvocation(
 		return false
 	}
 
+	outputValue := string(conformanceOutputText)
+	if flag := cmd.Flags().Lookup("output"); flag != nil {
+		outputValue, _ = cmd.Flags().GetString("output")
+	}
+	output, err := parseConformanceOutput(outputValue)
+	if err != nil {
+		return err
+	}
+
+	if output != conformanceOutputText {
+		if flagChanged("depth") {
+			return fmt.Errorf(
+				"--depth cannot be combined with --output %s",
+				output)
+		}
+		if flagChanged("nowrap") {
+			return fmt.Errorf(
+				"--nowrap cannot be combined with --output %s",
+				output)
+		}
+	}
+
 	if flagChanged("run") {
+		if output != conformanceOutputText {
+			return fmt.Errorf(
+				"--run only supports --output text")
+		}
 		conflicts := []string{}
 		for _, name := range []string{
 			"list-tests",
@@ -107,6 +149,10 @@ func validateConformInvocation(
 	if listTests {
 		if len(args) != 0 {
 			return fmt.Errorf("--list-tests does not accept target URLs")
+		}
+		if output == conformanceOutputJUnit {
+			return fmt.Errorf(
+				"--list-tests does not support --output junit")
 		}
 		for _, name := range []string{
 			"server",
@@ -151,12 +197,33 @@ func runConformWithCatalog(
 	profiles []ConformanceProfile,
 	catalog []ConformanceCase,
 ) (int, error) {
+	output, err := parseConformanceOutput(string(options.output))
+	if err != nil {
+		return 0, err
+	}
+	options.output = output
+	if output != conformanceOutputText {
+		if options.depthExplicit {
+			return 0, fmt.Errorf(
+				"--depth cannot be combined with --output %s",
+				output)
+		}
+		if options.nowrapExplicit {
+			return 0, fmt.Errorf(
+				"--nowrap cannot be combined with --output %s",
+				output)
+		}
+		if options.runFunc != "" {
+			return 0, fmt.Errorf(
+				"--run only supports --output text")
+		}
+	}
+
 	var selection *ConformanceSelection
 	if options.runFunc == "" {
 		if err := validateConformanceCatalog(profiles, catalog); err != nil {
 			return 0, err
 		}
-		var err error
 		selection, err = resolveConformanceSelection(
 			catalog,
 			options.testIDs,
@@ -181,41 +248,53 @@ func runConformWithCatalog(
 	}()
 
 	rc := 0
-	for i, server := range servers {
+	results := make([]*conformanceTargetResult, 0, len(servers))
+	for _, server := range servers {
 		TDClear()
 		FailFast = options.failFast
 		WrapAt = options.wrapAt
 		tdDebug = options.debug
 
-		if i != 0 {
-			fmt.Fprintln(out)
+		result := executeConformanceTarget(server, options, selection)
+		results = append(results, result)
+		rc += result.ExitCode
+	}
+
+	switch output {
+	case conformanceOutputText:
+		renderConformanceText(out, results, options)
+	case conformanceOutputJSON, conformanceOutputJUnit:
+		report, err := buildConformanceExecutionReport(
+			results,
+			options,
+			profiles,
+			catalog,
+			selection,
+		)
+		if err != nil {
+			return rc, err
 		}
-		rc = rc + conformServer(server, out, options, selection)
+		if output == conformanceOutputJSON {
+			err = writeConformanceJSON(out, report)
+		} else {
+			err = writeConformanceJUnit(out, report)
+		}
+		if err != nil {
+			return rc, err
+		}
 	}
 
 	return rc, nil
 }
 
-func conformServer(
+func executeConformanceTarget(
 	server string,
-	out io.Writer,
 	options conformOptions,
 	selection *ConformanceSelection,
-) int {
+) *conformanceTargetResult {
 	td := NewTD(nil, server)
-
-	defer func() {
-		// Print the results
-		// td.Dump("")
-		printDepth := options.depth
-		if printDepth <= 0 {
-			// Can't actually do zero, so zero = -1 (all)
-			printDepth = 9999999
-		}
-		td.Print(out, "", options.showLogs, printDepth-1)
-	}()
-
-	td.SetRegistry(xrlib.DefineRegistry(server))
+	reg := xrlib.DefineRegistry(server)
+	td.SetRegistry(reg)
 
 	/*
 		if ConfigFile != "" {
@@ -243,8 +322,46 @@ func conformServer(
 		td.Run(fn)
 	}
 
-	// Print results via defer
-	return td.ExitCode()
+	result := &conformanceTargetResult{
+		RequestedURL: server,
+		EffectiveURL: reg.GetServerURL(),
+		Root:         td,
+		ExitCode:     td.ExitCode(),
+	}
+	if value, ok := reg.GetStuff(conformanceSniffResponseKey); ok {
+		if response, ok := value.(*xrlib.HttpResponse); ok &&
+			response != nil && response.JSON != nil {
+
+			if specVersion, ok := response.JSON["specversion"].(string); ok {
+				result.DetectedSpecVersion = &specVersion
+			}
+		}
+	}
+	return result
+}
+
+func renderConformanceText(
+	out io.Writer,
+	results []*conformanceTargetResult,
+	options conformOptions,
+) {
+	printDepth := options.depth
+	if printDepth <= 0 {
+		// Can't actually do zero, so zero = -1 (all)
+		printDepth = 9999999
+	}
+
+	for i, result := range results {
+		if i != 0 {
+			fmt.Fprintln(out)
+		}
+		result.Root.Print(
+			out,
+			"",
+			options.showLogs,
+			printDepth-1,
+		)
+	}
 }
 
 type conformanceExecutionState struct {
@@ -297,6 +414,7 @@ func runSelectedConformanceCases(
 						dependencyID)
 				}
 				if dependencyTD.Status == FAIL {
+					caseTD.DependencyFailed = dependencyID
 					caseTD.DependsOn(dependency.Test)
 				}
 			}
@@ -327,6 +445,8 @@ func addConformCmd(parent *cobra.Command) {
 		"Run a stable conformance test ID (repeatable)")
 	conformCmd.Flags().Bool("allow-mutations", false,
 		"Allow selected mutation tests to send unsafe HTTP methods")
+	conformCmd.Flags().String("output", string(conformanceOutputText),
+		"Output format: text, json, junit")
 
 	conformCmd.Flags().MarkHidden("run")
 	conformCmd.Flags().MarkHidden("tdDebug")

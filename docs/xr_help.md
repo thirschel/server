@@ -28,6 +28,7 @@ xr conform [URL...]
       --list-tests         List conformance tests without contacting a server
   -l, --logs               Show logs even on success
       --nowrap             Don't wrap output
+      --output string      Output format: text, json, junit (default "text")
   -s, --server string      xRegistry server URL
       --test stringArray   Run a stable conformance test ID (repeatable)
   -v, --verbose            Be chatty

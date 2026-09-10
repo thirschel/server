@@ -3,6 +3,8 @@ package tests
 // ├ │ └
 
 import (
+	"encoding/json"
+	"encoding/xml"
 	"os"
 	"os/exec"
 	"strings"
@@ -2331,8 +2333,88 @@ func TestXRConformBasic(t *testing.T) {
 └─ PASS: TestResources
 Pass: 101   Fail: 0   Warn: 0   Skip: 0
 `, ``, true)
+	XCLI(t, "conform --output text", "", `PASS: http://localhost:8181
+├─ PASS: TestSniff
+├─ PASS: TestModel
+├─ PASS: TestCapabilities
+├─ PASS: TestRegistryRoot
+├─ PASS: TestGroups
+└─ PASS: TestResources
+Pass: 101   Fail: 0   Warn: 0   Skip: 0
+`, ``, true)
 
 	XCLI(t, "conform --list-tests", "", "*", ``, true)
+
+	jsonOutput, err := exec.Command(
+		"../xr",
+		"conform",
+		"--output",
+		"json",
+		"--test",
+		"core.registry-access",
+	).Output()
+	XNoErr(t, err)
+	var jsonReport struct {
+		Kind    string `json:"kind"`
+		Targets []struct {
+			Cases []struct {
+				ID string `json:"id"`
+			} `json:"cases"`
+		} `json:"targets"`
+	}
+	XNoErr(t, json.Unmarshal(jsonOutput, &jsonReport))
+	if jsonReport.Kind != "execution" ||
+		len(jsonReport.Targets) != 1 ||
+		len(jsonReport.Targets[0].Cases) != 1 ||
+		jsonReport.Targets[0].Cases[0].ID != "core.registry-access" {
+
+		t.Fatalf("Unexpected conform JSON report: %#v", jsonReport)
+	}
+
+	catalogOutput, err := exec.Command(
+		"../xr",
+		"conform",
+		"--list-tests",
+		"--output",
+		"json",
+	).Output()
+	XNoErr(t, err)
+	var catalogReport struct {
+		Kind  string `json:"kind"`
+		Cases []any  `json:"cases"`
+	}
+	XNoErr(t, json.Unmarshal(catalogOutput, &catalogReport))
+	if catalogReport.Kind != "catalog" ||
+		len(catalogReport.Cases) != 6 {
+
+		t.Fatalf("Unexpected conform catalog JSON: %#v", catalogReport)
+	}
+
+	junitOutput, err := exec.Command(
+		"../xr",
+		"conform",
+		"--output",
+		"junit",
+		"--test",
+		"core.registry-access",
+	).Output()
+	XNoErr(t, err)
+	var junitReport struct {
+		XMLName xml.Name `xml:"testsuites"`
+		Suites  []struct {
+			Cases []struct {
+				Name string `xml:"name,attr"`
+			} `xml:"testcase"`
+		} `xml:"testsuite"`
+	}
+	XNoErr(t, xml.Unmarshal(junitOutput, &junitReport))
+	if junitReport.XMLName.Local != "testsuites" ||
+		len(junitReport.Suites) != 1 ||
+		len(junitReport.Suites[0].Cases) != 1 ||
+		junitReport.Suites[0].Cases[0].Name != "core.registry-access" {
+
+		t.Fatalf("Unexpected conform JUnit report: %#v", junitReport)
+	}
 
 	const sniffOnly = `PASS: http://localhost:8181
 └─ PASS: TestSniff
@@ -2345,6 +2427,9 @@ Pass: 6   Fail: 0   Warn: 0   Skip: 0
 
 	XCLI(t, "conform --test Core.registry-access", "", ``, "*", false)
 	XCLI(t, "conform --list-tests http://localhost:8181", "", ``, "*", false)
+	XCLI(t, "conform --output yaml", "", ``, "*", false)
+	XCLI(t, "conform --output yaml --errjson", "", ``, "*", false)
+	XCLI(t, "conform --list-tests --output junit", "", ``, "*", false)
 	XCLI(t,
 		"conform --run TestTDAllPass --test core.registry-access",
 		"", ``, "*", false)

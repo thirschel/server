@@ -31,11 +31,13 @@ and immutable specification references:
 
 ```console
 xr conform --list-tests
+xr conform --list-tests --output json
 ```
 
 `--list-tests` does not contact a registry. It cannot be combined with target
 URLs, `--server`, `--test`, `--allow-mutations`, hidden `--run`, or
-execution-formatting flags.
+execution-formatting flags. Catalog listings support `text` and `json`;
+`--list-tests --output junit` is a usage error.
 
 ## Selecting tests
 
@@ -92,11 +94,62 @@ read-only.
 
 ## Output and exit status
 
-Conformance output is currently text-only. For a supported rc4 target, the
-default output, tree shape, and legacy TD-entry counts remain compatible with
-the original runner.
+Use `--output text|json|junit` to select a report format. The default is
+`text`, and explicit `--output text` is byte-for-byte identical to the
+default. Reports are written to stdout; use ordinary shell redirection to
+save them:
+
+```console
+xr conform --output json https://registry.example.com > report.json
+xr conform --output junit https://registry.example.com > report.xml
+```
+
+One invocation produces one JSON or XML document. Multiple targets, including
+repeated URLs, remain separate ordered target or suite entries in that
+document. Each target executes once and all renderers project the same
+in-memory catalog and TD result.
+
+Structured execution reports contain stable case IDs, exact profile
+provenance, requested and resolved selection, logical case outcomes, optional
+legacy `tdEntryCounts`, redacted target URLs, and nested diagnostics. They
+contain no timestamps or durations. Informational TD log entries are omitted
+unless `--logs` is supplied; serialized log messages are then bounded and
+report whether truncation occurred. The v1 bound is 4096 Unicode code points
+per informational log message. Failures, warnings, skips, and messages are
+always retained.
+
+Target URLs are safe to persist: URL userinfo is removed and every query value
+is replaced while query names and order are preserved. Configured request
+headers are never serialized. The report implementation does not add response
+body logging.
+
+JUnit output contains one `<testsuites>` document, one `<testsuite>` per
+target, and one `<testcase>` per resolved stable case ID. Conformance failures
+map to `<failure>` and cases not run because a dependency failed map to
+`<skipped>`. Warnings and partial skips remain non-failing diagnostics in
+properties and `<system-out>`. Timing attributes are intentionally omitted.
+
+Structured output is incompatible with explicitly supplied `--depth` or
+`--nowrap`. Hidden `--run` remains text-only. `--errjson` affects command and
+usage errors on stderr; it does not change report shape.
+
+### JSON report versioning
+
+The committed Draft 2020-12 schema is
+[`xr_conform_report_v1.schema.json`](xr_conform_report_v1.schema.json), with
+schema version `1.0.0` and stable `$id`
+`https://xregistry.io/schemas/xr_conform_report_v1.schema.json`. It strictly
+selects either an execution report or a catalog listing.
+
+Consumers should ignore unknown additive fields. Additive optional fields may
+be introduced in a minor schema version. Removing fields, changing field
+types, or reinterpreting existing semantics requires a major version.
+
+For a supported rc4 target, the default text output, tree shape, and legacy
+TD-entry counts remain compatible with the original runner.
 
 Command and usage errors exit with status `1`. Each failed target contributes
 the existing TD failure status `2`; successful targets, skipped targets, and
 warnings under the default warning policy contribute `0`. Multi-target runs
-retain the existing behavior of summing the per-target statuses.
+retain the existing behavior of summing the per-target statuses. The selected
+output format does not change this numeric behavior.
