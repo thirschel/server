@@ -1040,5 +1040,6 @@ func newConformanceInvocationTestCommand() *cobra.Command {
 	cmd.Flags().Bool("list-tests", false, "")
 	cmd.Flags().StringArray("test", nil, "")
 	cmd.Flags().Bool("allow-mutations", false, "")
+	cmd.Flags().String("output", string(conformanceOutputText), "")
 	return cmd
 }

@@ -74,10 +74,11 @@ type LogEntry struct {
 
 // TestData
 type TD struct {
-	TestName string
-	Parent   *TD `json:"-"`
-	Logs     []*LogEntry
-	Case     *ConformanceCase `json:"-"`
+	TestName         string
+	Parent           *TD `json:"-"`
+	Logs             []*LogEntry
+	Case             *ConformanceCase `json:"-"`
+	DependencyFailed string           `json:"-"` // Direct blocking case ID.
 
 	Status int // PASS, FAIL, ...
 	Props  map[string]any
