@@ -3,12 +3,34 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/xregistry/server/cmds/xr/xrlib"
 )
 
+var conformRunAliases = []string{"all", "smoke", "entities"}
+
+var conformRunFunctions = map[string]TestFn{
+	"all":      TestTDAll,
+	"smoke":    TestTDSmoke,
+	"entities": TestTDEntities,
+
+	// Retain the existing internal TD test entry points.
+	"TestTDAllPass": TestTDAllPass,
+	"TestTDDepFail": TestTDDepFail,
+	"TestTDMixture": TestTDMixture,
+	"TestTDUtils":   TestTDUtils,
+}
+
 func conformFunc(cmd *cobra.Command, args []string) {
+	runNames, _ := cmd.Flags().GetStringArray("run")
+	runFunctions, err := resolveConformRunFunctions(runNames)
+	if err != nil {
+		ShowError(err)
+		os.Exit(1)
+	}
+
 	servers := []string{}
 
 	if len(args) > 0 {
@@ -36,7 +58,7 @@ func conformFunc(cmd *cobra.Command, args []string) {
 	config.ShowSkips, _ = cmd.Flags().GetBool("skips")
 	config.ShowLogs, _ = cmd.Flags().GetBool("logs")
 	config.ConsoleDepth, _ = cmd.Flags().GetInt("depth")
-	config.RunFunc, _ = cmd.Flags().GetString("run")
+	config.runFunctions = runFunctions
 
 	rc := runConform(servers, config)
 	if rc != 0 {
@@ -94,25 +116,69 @@ func testServer(config *TDConfig) int {
 
 	td.SetRegistry(xrlib.DefineRegistry(config.Server))
 
-	if config.RunFunc == "" {
-		td.Include(TestRegistry)
-	} else {
-		// Just for testing
-		funcs := map[string]TestFn{
-			"TestTDAllPass": TestTDAllPass,
-			"TestTDDepFail": TestTDDepFail,
-			"TestTDMixture": TestTDMixture,
-			"TestTDUtils":   TestTDUtils,
-		}
-		fn := funcs[config.RunFunc]
+	runFunctions := config.runFunctions
+	if config.RunFunc != "" {
+		fn := conformRunFunctions[config.RunFunc]
 		if fn == nil {
 			panic(fmt.Sprintf("No function by name: %s", config.RunFunc))
 		}
-		td.Run(fn)
+		runFunctions = []TestFn{fn}
+	}
+
+	if len(runFunctions) == 0 {
+		td.Include(TestRegistry)
+	} else {
+		for _, fn := range runFunctions {
+			result := td.Run(fn)
+			if config.FailFast && result.Status == FAIL {
+				break
+			}
+		}
 	}
 
 	// Print results via defer
 	return td.ExitCode()
+}
+
+func resolveConformRunFunctions(names []string) ([]TestFn, error) {
+	functions := make([]TestFn, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		fn := conformRunFunctions[name]
+		if fn == nil {
+			return nil, fmt.Errorf(
+				"unknown conform run %q; valid aliases: %s",
+				name, strings.Join(conformRunAliases, ", "))
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		functions = append(functions, fn)
+	}
+	return functions, nil
+}
+
+func TestTDAll(td *TD) {
+	td.DependsOn(TestSniff)
+	td.DependsOn(TestModel)
+	td.DependsOn(TestCapabilities)
+	td.DependsOn(TestRegistryRoot)
+	td.DependsOn(TestGroups)
+	td.DependsOn(TestResources)
+}
+
+func TestTDSmoke(td *TD) {
+	td.DependsOn(TestSniff)
+	td.DependsOn(TestModel)
+	td.DependsOn(TestCapabilities)
+	td.DependsOn(TestRegistryRoot)
+}
+
+func TestTDEntities(td *TD) {
+	td.DependsOn(TestRegistryRoot)
+	td.DependsOn(TestGroups)
+	td.DependsOn(TestResources)
 }
 
 func addConformCmd(parent *cobra.Command) {
@@ -128,10 +194,10 @@ func addConformCmd(parent *cobra.Command) {
 	conformCmd.Flags().Bool("warns", false, "Show WARNs in console")
 	conformCmd.Flags().Bool("skips", false, "Show SKIPs in console")
 	conformCmd.Flags().Bool("failfast", false, "Stop on first failure")
-	conformCmd.Flags().StringP("run", "r", "", "Run function")
+	conformCmd.Flags().StringArrayP("run", "r", nil,
+		"Run test group (repeatable: all, smoke, entities)")
 	conformCmd.Flags().BoolP("nowrap", "", false, "Don't wrap output")
 
-	conformCmd.Flags().MarkHidden("run")
 	conformCmd.Flags().MarkHidden("tdDebug")
 
 	parent.AddCommand(conformCmd)

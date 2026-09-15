@@ -2337,6 +2337,179 @@ header.bar2: foo2`
 `, true, MASK_LOGS)
 }
 
+func TestXRConformRunGroups(t *testing.T) {
+	result := XCLI(t,
+		"conform --skips --run smoke --run entities --run smoke "+
+			"http://localhost:8282/conform",
+		"",
+		`PASS: http://localhost:8282/conform (skip:3)
+├─ PASS: TestTDSmoke (skip:1)
+│  ├─ PASS: TestCapabilities (skip:1)
+│  │  ├─ PASS: capabilities.available MUST include "capabilities"
+│  │  ├─ PASS: capabilities.available MUST include "entities"
+│  │  ├─ PASS: capabilities.available MUST include "model"
+│  │  ├─ PASS: capabilities.available.entities MUST NOT be "mutable"
+│  │  ├─ PASS: 'GET /capabilities' MUST return 200
+│  │  ├─ PASS: 'GET /capabilities' MUST return a non-empty body
+│  │  ├─ PASS: 'GET /capabilities' MUST return a JSON body
+│  │  ├─ PASS: 'GET /' MUST return 200
+│  │  ├─ PASS: 'GET /' MUST return a non-empty body
+│  │  ├─ PASS: 'GET /' MUST return a JSON body
+│  │  ├─ PASS: 'GET /' MUST NOT include 'capabilities' attribute
+│  │  ├─ PASS: Testing ?inline=capabilities (skip:1)
+│  │  │  └─ SKIP: ?inline not supported
+└─ PASS: TestTDEntities (skip:2)
+   ├─ PASS: TestRegistryRoot (cached)
+   ├─ PASS: TestGroups (skip:1)
+   │  ├─ PASS: TestModel (cached)
+   │  ├─ PASS: TestCapabilities (cached)
+   │  └─ SKIP: No Group Types defined - leaving
+   └─ PASS: TestResources (skip:1)
+      ├─ PASS: TestGroups (cached)
+      └─ SKIP: No Group Types defined  - leaving
+Pass: 58   Fail: 0   Warn: 0   Skip: 3
+`,
+		"",
+		true,
+	)
+	XEqual(t, "Exit Code", result.Code, 0)
+}
+
+func TestXRConformRunAllBeforeSmoke(t *testing.T) {
+	result := XCLI(t,
+		"conform --skips --run all --run smoke "+
+			"http://localhost:8282/conform",
+		"",
+		`PASS: http://localhost:8282/conform (skip:3)
+├─ PASS: TestTDAll (skip:3)
+│  ├─ PASS: TestCapabilities (skip:1)
+│  │  ├─ PASS: capabilities.available MUST include "capabilities"
+│  │  ├─ PASS: capabilities.available MUST include "entities"
+│  │  ├─ PASS: capabilities.available MUST include "model"
+│  │  ├─ PASS: capabilities.available.entities MUST NOT be "mutable"
+│  │  ├─ PASS: 'GET /capabilities' MUST return 200
+│  │  ├─ PASS: 'GET /capabilities' MUST return a non-empty body
+│  │  ├─ PASS: 'GET /capabilities' MUST return a JSON body
+│  │  ├─ PASS: 'GET /' MUST return 200
+│  │  ├─ PASS: 'GET /' MUST return a non-empty body
+│  │  ├─ PASS: 'GET /' MUST return a JSON body
+│  │  ├─ PASS: 'GET /' MUST NOT include 'capabilities' attribute
+│  │  ├─ PASS: Testing ?inline=capabilities (skip:1)
+│  │  │  └─ SKIP: ?inline not supported
+│  ├─ PASS: TestGroups (skip:1)
+│  │  ├─ PASS: TestModel (cached)
+│  │  ├─ PASS: TestCapabilities (cached)
+│  │  └─ SKIP: No Group Types defined - leaving
+│  └─ PASS: TestResources (skip:1)
+│     ├─ PASS: TestGroups (cached)
+│     └─ SKIP: No Group Types defined  - leaving
+└─ PASS: TestTDSmoke
+Pass: 61   Fail: 0   Warn: 0   Skip: 3
+`,
+		"",
+		true,
+	)
+	XEqual(t, "Exit Code", result.Code, 0)
+}
+
+func TestXRConformRunAllAfterSmoke(t *testing.T) {
+	result := XCLI(t,
+		"conform --skips --run smoke --run all "+
+			"http://localhost:8282/conform",
+		"",
+		`PASS: http://localhost:8282/conform (skip:3)
+├─ PASS: TestTDSmoke (skip:1)
+│  ├─ PASS: TestCapabilities (skip:1)
+│  │  ├─ PASS: capabilities.available MUST include "capabilities"
+│  │  ├─ PASS: capabilities.available MUST include "entities"
+│  │  ├─ PASS: capabilities.available MUST include "model"
+│  │  ├─ PASS: capabilities.available.entities MUST NOT be "mutable"
+│  │  ├─ PASS: 'GET /capabilities' MUST return 200
+│  │  ├─ PASS: 'GET /capabilities' MUST return a non-empty body
+│  │  ├─ PASS: 'GET /capabilities' MUST return a JSON body
+│  │  ├─ PASS: 'GET /' MUST return 200
+│  │  ├─ PASS: 'GET /' MUST return a non-empty body
+│  │  ├─ PASS: 'GET /' MUST return a JSON body
+│  │  ├─ PASS: 'GET /' MUST NOT include 'capabilities' attribute
+│  │  ├─ PASS: Testing ?inline=capabilities (skip:1)
+│  │  │  └─ SKIP: ?inline not supported
+└─ PASS: TestTDAll (skip:2)
+   ├─ PASS: TestSniff (cached)
+   ├─ PASS: TestModel (cached)
+   ├─ PASS: TestCapabilities (cached)
+   ├─ PASS: TestRegistryRoot (cached)
+   ├─ PASS: TestGroups (skip:1)
+   │  ├─ PASS: TestModel (cached)
+   │  ├─ PASS: TestCapabilities (cached)
+   │  └─ SKIP: No Group Types defined - leaving
+   └─ PASS: TestResources (skip:1)
+      ├─ PASS: TestGroups (cached)
+      └─ SKIP: No Group Types defined  - leaving
+Pass: 61   Fail: 0   Warn: 0   Skip: 3
+`,
+		"",
+		true,
+	)
+	XEqual(t, "Exit Code", result.Code, 0)
+}
+
+func TestXRConformUnknownRun(t *testing.T) {
+	result := XCLI(t,
+		"conform --run bogus http://127.0.0.1:1",
+		"",
+		"",
+		"unknown conform run \"bogus\"; valid aliases: "+
+			"all, smoke, entities.\n",
+		false,
+	)
+	XEqual(t, "Exit Code", result.Code, 1)
+}
+
+func TestXRConformRunFailfast(t *testing.T) {
+	result := XCLI(t,
+		"conform --failfast --run TestTDDepFail --run smoke "+
+			"http://one.example",
+		"",
+		`FAIL: http://one.example
+└─ FAIL: TestTDDepFail
+   ├─ FAIL: TestTDInitFail
+   │  └─ FAIL: Init
+   └─ Dependency "TestTDInitFail" failed, leaving
+Pass: 0   Fail: 4   Warn: 0   Skip: 0
+`,
+		"",
+		false,
+	)
+	XEqual(t, "Exit Code", result.Code, 1)
+}
+
+func TestXRConformRunHelp(t *testing.T) {
+	result := XCLI(t, "conform --help", "", `xRegistry Conformance Tester
+
+Usage:
+  xr conform [URL...] [flags]
+
+Flags:
+  -d, --depth int         Console depth (default 2)
+      --failfast          Stop on first failure
+  -l, --logs              Show logs even on success
+      --nowrap            Don't wrap output
+  -r, --run stringArray   Run test group (repeatable: all, smoke, entities)
+      --skips             Show SKIPs in console
+      --warns             Show WARNs in console
+
+Global Flags:
+      --config string      Config file ($HOME/.xr)
+      --cset stringArray   Override configFile property: --cset NAME[:VALUE]
+      --errjson            Print errors as json
+  -?, --help               Help for xr
+  -s, --server string      xRegistry server URL
+  -v, --verbose            Be chatty
+      --version            Print command version string
+`, "", true)
+	XEqual(t, "Exit Code", result.Code, 0)
+}
+
 func TestXRConformRepeatedTargetsUseFreshRegistries(t *testing.T) {
 	const target = "http://localhost:8282/conform"
 	cliResult := XCLI(t, "conform --skips -vvv "+target+" "+target, "", `PASS: http://localhost:8282/conform (skip:3)

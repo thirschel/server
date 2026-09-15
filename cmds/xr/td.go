@@ -54,7 +54,8 @@ type TDConfig struct {
 	ConsoleDepth int
 	RunFunc      string
 
-	TestRuns map[string]*TD
+	TestRuns     map[string]*TD
+	runFunctions []TestFn
 }
 
 // TestData
