@@ -279,6 +279,17 @@ func (reg *Registry) HttpDo(debug bool, verb, path string, body []byte) (*HttpRe
 	return HttpDo(debug, verb, u.String(), HTTPHeaders, body)
 }
 
+func (reg *Registry) HttpDoNoRedirect(debug bool, verb, path string,
+	body []byte) (*HttpResponse, *XRError) {
+
+	u, xErr := reg.URLWithPath(path)
+	if xErr != nil {
+		return nil, xErr
+	}
+
+	return HttpDoNoRedirect(debug, verb, u.String(), HTTPHeaders, body)
+}
+
 func (m *Model) FindGroupBySingular(singular string) *GroupModel {
 	for _, group := range m.Groups {
 		if group.Singular == singular {

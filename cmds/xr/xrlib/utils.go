@@ -86,13 +86,22 @@ type HttpResponse struct {
 // statusCode, body
 // Add headers (in and out) later
 func HttpDo(debug bool, verb string, url string, headers map[string]string, body []byte) (*HttpResponse, *XRError) {
-	client := &http.Client{}
-	/*
-		client := &http.Client{
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			}}
-	*/
+	return httpDo(&http.Client{}, debug, verb, url, headers, body)
+}
+
+func HttpDoNoRedirect(debug bool, verb string, url string,
+	headers map[string]string, body []byte) (*HttpResponse, *XRError) {
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	return httpDo(client, debug, verb, url, headers, body)
+}
+
+func httpDo(client *http.Client, debug bool, verb string, url string,
+	headers map[string]string, body []byte) (*HttpResponse, *XRError) {
 
 	httpRes := &HttpResponse{}
 
